@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joshua Prince <joshua@jtprince.com>
+Date: Tue, 25 Jan 2022 21:14:47 -0800
+Subject: [PATCH] Add Forced Chunk Tick API
+
+
+diff --git a/src/main/java/net/minecraft/server/level/ServerChunkCache.java b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+index 099b9f57c710ee378307dc8edc942f7049703bee..4daa15478d214bef2d781b09a6a93dd82ad4391b 100644
+--- a/src/main/java/net/minecraft/server/level/ServerChunkCache.java
++++ b/src/main/java/net/minecraft/server/level/ServerChunkCache.java
+@@ -1022,6 +1022,7 @@ public class ServerChunkCache extends ChunkSource {
+             }
+ 
+             int chunksTicked = 0; // Paper
++            it.unimi.dsi.fastutil.longs.LongSet forceTickedChunks = this.level.getForceTickedChunks(); // Paper
+             try {
+             while (iterator1.hasNext()) {
+                 LevelChunk chunk1 = iterator1.next();
+@@ -1040,12 +1041,17 @@ public class ServerChunkCache extends ChunkSource {
+                     if (flag2 && (this.spawnEnemies || this.spawnFriendlies) && this.level.getWorldBorder().isWithinBounds(chunkcoordintpair) && this.chunkMap.anyPlayerCloseEnoughForSpawning(holder, chunkcoordintpair, true)) { // Spigot // Paper - optimise anyPlayerCloseEnoughForSpawning & optimise chunk tick iteration
+                         NaturalSpawner.spawnForChunk(this.level, chunk1, spawnercreature_d, this.spawnFriendlies, this.spawnEnemies, flag1);
+                     }
++                // Paper start - move tickChunk outside player distance check to add force ticked chunks
++                }
+ 
+-                    if (this.level.shouldTickBlocksAt(chunkcoordintpair.toLong())) {
++                if (((true || this.level.isPositionEntityTicking(chunkcoordintpair))
++                     && this.chunkMap.anyPlayerCloseEnoughForSpawning(holder, chunkcoordintpair, false)
++                     && this.level.shouldTickBlocksAt(chunkcoordintpair.toLong()))
++                    || forceTickedChunks.contains(chunkcoordintpair.toLong())) {
+                         this.level.tickChunk(chunk1, k);
+                         if ((chunksTicked++ & 1) == 0) net.minecraft.server.MinecraftServer.getServer().executeMidTickTasks(); // Paper
+-                    }
+                 }
++                // Paper end - force ticked chunks
+                 // Paper start - optimise chunk tick iteration
+                 }
+             }
+diff --git a/src/main/java/net/minecraft/server/level/ServerLevel.java b/src/main/java/net/minecraft/server/level/ServerLevel.java
+index a2abb8aa1a257ccd2b5dbddc037fffc6eb600758..ae94524fc24f026b36ea4bd7166de19d5414171d 100644
+--- a/src/main/java/net/minecraft/server/level/ServerLevel.java
++++ b/src/main/java/net/minecraft/server/level/ServerLevel.java
+@@ -1961,6 +1961,33 @@ public class ServerLevel extends Level implements WorldGenLevel {
+         return flag1;
+     }
+ 
++    // Paper start
++    public LongSet getForceTickedChunks() {
++        ForcedChunksSavedData forcedchunk = this.getDataStorage().get(ForcedChunksSavedData::load, "chunks");
++
++        return (forcedchunk != null ? LongSets.unmodifiable(forcedchunk.getTickedChunks()) : LongSets.EMPTY_SET);
++    }
++
++    public boolean setChunkForceTicked(int x, int z, boolean forced) {
++        ForcedChunksSavedData forcedchunk = this.getDataStorage().computeIfAbsent(ForcedChunksSavedData::load, ForcedChunksSavedData::new, "chunks");
++        ChunkPos chunkcoordintpair = new ChunkPos(x, z);
++        long k = chunkcoordintpair.toLong();
++        boolean changed;
++
++        if (forced) {
++            changed = forcedchunk.getTickedChunks().add(k);
++            if (changed) {
++                this.getChunk(x, z);
++            }
++        } else {
++            changed = forcedchunk.getTickedChunks().remove(k);
++        }
++
++        forcedchunk.setDirty(changed);
++        return changed;
++    }
++    // Paper end
++
+     @Override
+     public List<ServerPlayer> players() {
+         return this.players;
+diff --git a/src/main/java/net/minecraft/world/level/ForcedChunksSavedData.java b/src/main/java/net/minecraft/world/level/ForcedChunksSavedData.java
+index b53badc818cd98c677d8f72ed2e4e7e9d2b8b858..e27f4d8fb73f6ca923ed42df74089ddf205f3421 100644
+--- a/src/main/java/net/minecraft/world/level/ForcedChunksSavedData.java
++++ b/src/main/java/net/minecraft/world/level/ForcedChunksSavedData.java
+@@ -8,27 +8,37 @@ import net.minecraft.world.level.saveddata.SavedData;
+ public class ForcedChunksSavedData extends SavedData {
+     public static final String FILE_ID = "chunks";
+     private static final String TAG_FORCED = "Forced";
++    private static final String TAG_FORCED_TICKS = "Paper.ForcedTicks"; // Paper
+     private final LongSet chunks;
++    private final LongSet tickedChunks; // Paper
+ 
+-    private ForcedChunksSavedData(LongSet chunks) {
++    private ForcedChunksSavedData(LongSet chunks, LongSet tickedChunks) { // Paper
+         this.chunks = chunks;
++        this.tickedChunks = tickedChunks; // Paper
+     }
+ 
+     public ForcedChunksSavedData() {
+-        this(new LongOpenHashSet());
++        this(new LongOpenHashSet(), new LongOpenHashSet()); // Paper
+     }
+ 
+     public static ForcedChunksSavedData load(CompoundTag nbt) {
+-        return new ForcedChunksSavedData(new LongOpenHashSet(nbt.getLongArray("Forced")));
++        return new ForcedChunksSavedData(new LongOpenHashSet(nbt.getLongArray("Forced")), new LongOpenHashSet(nbt.getLongArray(TAG_FORCED_TICKS))); // Paper
+     }
+ 
+     @Override
+     public CompoundTag save(CompoundTag nbt) {
+         nbt.putLongArray("Forced", this.chunks.toLongArray());
++        nbt.putLongArray(TAG_FORCED_TICKS, this.tickedChunks.toLongArray()); // Paper
+         return nbt;
+     }
+ 
+     public LongSet getChunks() {
+         return this.chunks;
+     }
++
++    // Paper start
++    public LongSet getTickedChunks() {
++        return this.tickedChunks;
++    }
++    // Paper end
+ }
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftChunk.java b/src/main/java/org/bukkit/craftbukkit/CraftChunk.java
+index f20293426b104ed0c02a931b5ab77f87590f0c18..55fa4b7240392a24d9db1d49f5b00e738561e049 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftChunk.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftChunk.java
+@@ -223,6 +223,18 @@ public class CraftChunk implements Chunk {
+         this.getWorld().setChunkForceLoaded(this.getX(), this.getZ(), forced);
+     }
+ 
++    // Paper start
++    @Override
++    public boolean isForceTicked() {
++        return this.getWorld().isChunkForceTicked(this.getX(), this.getZ());
++    }
++
++    @Override
++    public void setForceTicked(boolean forced) {
++        this.getWorld().setChunkForceTicked(this.getX(), this.getZ(), forced);
++    }
++    // Paper end
++
+     @Override
+     public boolean addPluginChunkTicket(Plugin plugin) {
+         return this.getWorld().addPluginChunkTicket(this.getX(), this.getZ(), plugin);
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+index 5fb475b3ccaa98861e2c817b37cd1740e5bfed8d..40481c29f7d9fd1bb474f467508ced875f7f395e 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftWorld.java
+@@ -647,6 +647,29 @@ public class CraftWorld extends CraftRegionAccessor implements World {
+         return Collections.unmodifiableCollection(chunks);
+     }
+ 
++    // Paper start
++    @Override
++    public boolean isChunkForceTicked(int x, int z) {
++        return this.getHandle().getForceTickedChunks().contains(ChunkPos.asLong(x, z));
++    }
++
++    @Override
++    public void setChunkForceTicked(int x, int z, boolean forced) {
++        this.getHandle().setChunkForceTicked(x, z, forced);
++    }
++
++    @Override
++    public Collection<Chunk> getForceTickedChunks() {
++        Set<Chunk> chunks = new HashSet<>();
++
++        for (long coord : this.getHandle().getForceTickedChunks()) {
++            chunks.add(this.getChunkAt(ChunkPos.getX(coord), ChunkPos.getZ(coord)));
++        }
++
++        return Collections.unmodifiableCollection(chunks);
++    }
++    // Paper end
++
+     public ServerLevel getHandle() {
+         return this.world;
+     }

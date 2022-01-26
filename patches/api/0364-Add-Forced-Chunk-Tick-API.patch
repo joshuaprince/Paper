@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joshua Prince <joshua@jtprince.com>
+Date: Tue, 25 Jan 2022 21:16:19 -0800
+Subject: [PATCH] Add Forced Chunk Tick API
+
+
+diff --git a/src/main/java/org/bukkit/Chunk.java b/src/main/java/org/bukkit/Chunk.java
+index 049c36807d2a970842442c1b7517c06f3f150041..042de903aadae0d40b7f000851885e3e971bae83 100644
+--- a/src/main/java/org/bukkit/Chunk.java
++++ b/src/main/java/org/bukkit/Chunk.java
+@@ -211,6 +211,36 @@ public interface Chunk extends PersistentDataHolder {
+      */
+     void setForceLoaded(boolean forced);
+ 
++    // Paper start
++    /**
++     * Gets whether the chunk at the specified chunk coordinates is forced to
++     * receive chunk ticks.
++     * <p>
++     * A force ticked chunk will receive chunk ticks when the chunk is loaded,
++     * regardless of player proximity. A force ticked chunk may still be
++     * unloaded if players are outside the server's view distance; use
++     * {@link Chunk#setForceLoaded(boolean)} to always keep the chunk loaded.
++     *
++     * @return force tick status
++     * @see World#isChunkForceTicked(int, int)
++     */
++    boolean isForceTicked();
++
++    /**
++     * Sets whether the chunk at the specified chunk coordinates is forced to
++     * receive chunk ticks.
++     * <p>
++     * A force ticked chunk will receive chunk ticks when the chunk is loaded,
++     * regardless of player proximity. A force ticked chunk may still be
++     * unloaded if players are outside the server's view distance; use
++     * {@link Chunk#setForceLoaded(boolean)} to always keep the chunk loaded.
++     *
++     * @param forced force tick status
++     * @see World#setChunkForceTicked(int, int, boolean)
++     */
++    void setForceTicked(boolean forced);
++    // Paper end
++
+     /**
+      * Adds a plugin ticket for this chunk, loading this chunk if it is not
+      * already loaded.
+diff --git a/src/main/java/org/bukkit/World.java b/src/main/java/org/bukkit/World.java
+index c808cc8dc96e325c543391048414880ed18a3ed3..fc1c52ad24ebd96589d2109b375bb29a60ea78f5 100644
+--- a/src/main/java/org/bukkit/World.java
++++ b/src/main/java/org/bukkit/World.java
+@@ -557,6 +557,54 @@ public interface World extends RegionAccessor, WorldInfo, PluginMessageRecipient
+     @NotNull
+     public Collection<Chunk> getForceLoadedChunks();
+ 
++    // Paper start
++    /**
++     * Gets whether the chunk at the specified chunk coordinates is forced to
++     * receive chunk ticks.
++     * <p>
++     * A force ticked chunk will receive chunk ticks when the chunk is loaded,
++     * regardless of player proximity. A force ticked chunk may still be
++     * unloaded if players are outside the server's view distance; use
++     * {@link World#setChunkForceLoaded(int, int, boolean)} to always keep the
++     * chunk loaded.
++     *
++     * @param x X-coordinate of the chunk
++     * @param z Z-coordinate of the chunk
++     * @return force tick status
++     */
++    public boolean isChunkForceTicked(int x, int z);
++
++    /**
++     * Sets whether the chunk at the specified chunk coordinates is forced to
++     * receive chunk ticks.
++     * <p>
++     * A force ticked chunk will receive chunk ticks when the chunk is loaded,
++     * regardless of player proximity. A force ticked chunk may still be
++     * unloaded if players are outside the server's view distance; use
++     * {@link World#setChunkForceLoaded(int, int, boolean)} to always keep the
++     * chunk loaded.
++     *
++     * @param x X-coordinate of the chunk
++     * @param z Z-coordinate of the chunk
++     * @param forced force tick status
++     */
++    public void setChunkForceTicked(int x, int z, boolean forced);
++
++    /**
++     * Returns all force ticked chunks in this world.
++     * <p>
++     * A force ticked chunk will receive chunk ticks when the chunk is loaded,
++     * regardless of player proximity. A force ticked chunk may still be
++     * unloaded if players are outside the server's view distance; use
++     * {@link World#setChunkForceLoaded(int, int, boolean)} to always keep the
++     * chunk loaded.
++     *
++     * @return unmodifiable collection of force ticked chunks
++     */
++    @NotNull
++    public Collection<Chunk> getForceTickedChunks();
++    // Paper end
++
+     /**
+      * Adds a plugin ticket for the specified chunk, loading the chunk if it is
+      * not already loaded.
